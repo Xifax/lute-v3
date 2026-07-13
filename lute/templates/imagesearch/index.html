@@ -7,6 +7,38 @@
     <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/styles.css') }}" />
     <link rel="stylesheet" type="text/css" href="/theme/current">
     <link rel="stylesheet" type="text/css" href="/theme/custom_styles">
+    <style>
+      #termimagesearch {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      #termimagesearch .imgWrapper {
+        width: 110px;
+        height: 110px;
+        margin: 2px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        box-sizing: border-box;
+        cursor: pointer;
+      }
+      #termimagesearch .imgWrapper img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: cover;
+      }
+      #termimagesearch .imgWrapper.highlight {
+        outline: 2px solid #3080ff;
+      }
+      #termimagesearch .imgWrapper.saved {
+        outline: 2px solid #30c030;
+      }
+      .termimagesearchtitle {
+        flex-basis: 100%;
+      }
+    </style>
   </head>
 
   <body>
@@ -152,10 +184,12 @@
             return;
           }
 
-          // Make Bing API call for images asynchronously
-          // This avoids blocking the page load
           data.images.forEach(function(item) {
-            const imgWrapper = create_imageWrapper_element(item.src, data.langid, data.text);
+            // Use the small thumbnail for the results grid; the
+            // full-resolution "src" is only sent to the server when
+            // the user actually clicks to save the image.
+            const thumb = item.thumb || item.src;
+            const imgWrapper = create_imageWrapper_element(thumb, item.src, data.langid, data.text);
             container.appendChild(imgWrapper);
           });
         },
@@ -167,18 +201,17 @@
       });
     });
 
-    function create_imageWrapper_element(src, langid, text) {
+    function create_imageWrapper_element(thumbSrc, fullSrc, langid, text) {
       const imgWrapper = document.createElement('span');
-      imgWrapper.classList.add('initial');
-      imgWrapper.style.margin = '2px';
-      imgWrapper.style.display = 'inline-block';
+      imgWrapper.classList.add('initial', 'imgWrapper');
       imgWrapper.onmouseover = () => highlight_image(imgWrapper);
       imgWrapper.onmouseout = () => un_highlight_image(imgWrapper);
-      imgWrapper.onclick = () => save_image_locally(src, langid, text);
+      imgWrapper.onclick = () => save_image_locally(fullSrc, langid, text);
 
       const img = document.createElement('img');
-      img.src = src;
-      
+      img.src = thumbSrc;
+      img.loading = 'lazy';
+
       imgWrapper.appendChild(img);
 
       return imgWrapper;

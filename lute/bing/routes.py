@@ -1,11 +1,14 @@
 """
-Getting and saving bing image search results.
+Getting and saving image search results.
+
+Image search is done via DuckDuckGo (the `ddgs` package) rather than
+scraping Bing's html, which was fragile and returned mostly irrelevant
+images once Bing changed its markup.
 """
 
 import os
 import datetime
 import hashlib
-import re
 import urllib.request
 from flask import (
     Blueprint,
@@ -16,6 +19,8 @@ from flask import (
     current_app,
     url_for,
 )
+
+from ddgs import DDGS
 
 
 bp = Blueprint("bing", __name__, url_prefix="/bing")
@@ -45,8 +50,16 @@ def bing_search_page(langid, text, searchstring):
 
 
 @bp.route("/search/<int:langid>/<string:text>/<string:searchstring>", methods=["GET"])
-def bing_search(langid, text, searchstring):
-    "Do an image search."
+def bing_search(langid, text, searchstring):  # pylint: disable=unused-argument
+    """
+    Do an image search via DuckDuckGo.
+
+    "searchstring" is accepted (and still passed in by bing_search_page /
+    the front-end url_for call) for backwards compatibility with the old
+    Bing-query-string mechanism, but it's no longer used: ddgs takes a
+    plain query and its own set of typed parameters instead of a raw
+    query-string blob.
+    """
 
     # Searching for images slows acceptance tests.  If NO_BING_IMAGES
     # environment setting, don't do a search.
@@ -55,46 +68,19 @@ def bing_search(langid, text, searchstring):
             "imagesearch/index.html", langid=langid, text=text, images=[]
         )
 
-    # dump("searching for " + text + " in " + language.getLgName())
-    search = urllib.parse.quote(text)
-    params = searchstring.replace("[LUTE]", search)
-    params = params.replace("###", search)  # TODO remove_old_###_placeholder: remove
-    url = "https://www.bing.com/images/search?" + params
-    content = ""
     error_msg = ""
+    images = []
+
     try:
-        with urllib.request.urlopen(url) as s:
-            content = s.read().decode("utf-8")
-    except urllib.error.URLError as e:
-        content = ""
-        error_msg = str(e.reason)
+        ddgs = DDGS()
+        results = ddgs.images(
+            query=text,
+            safesearch="moderate",
+            max_results=25,
+        )
+        images = [s for s in (_build_image_struct(r) for r in results) if s]
     except Exception as e:  # pylint: disable=broad-exception-caught
-        content = ""
         error_msg = str(e)
-
-    # Sample data returned by bing image search:
-    # <img class="mimg vimgld" ... data-src="https:// ...">
-    # or
-    # <img class="mimg rms_img" ... src="https://tse4.mm.bing ..." >
-
-    def is_search_img(img):
-        return not ('src="/' in img) and ("rms_img" in img or "vimgld" in img)
-
-    def build_struct(image):
-        src = "missing"
-        normalized_source = image.replace("data-src=", "src=")
-        m = re.search(r'src="(.*?)"', normalized_source)
-        if m:
-            src = m.group(1)
-        return {"html": image, "src": src}
-
-    raw_images = list(re.findall(r"(<img .*?>)", content, re.I))
-
-    images = [build_struct(i) for i in raw_images if is_search_img(i)]
-
-    # Reduce image load count so we don't kill subpage loading.
-    # Also bing seems to throttle images if the count is higher (??).
-    images = images[:25]
 
     ret = {
         "langid": langid,
@@ -103,6 +89,25 @@ def bing_search(langid, text, searchstring):
         "error_message": error_msg,
     }
     return jsonify(ret)
+
+
+def _build_image_struct(result):
+    """
+    Convert one ddgs image-search result into the {"html", "src"} shape
+    that the imagesearch template/JS expects (it previously came from a
+    scraped Bing <img> tag).
+
+    "src" is the full-resolution image, used by bing_save() when the user
+    clicks an image to save it. "html" is a small <img> snippet built from
+    the thumbnail, so the search results grid stays cheap to render.
+    """
+    src = result.get("image")
+    if not src:
+        return None
+    thumb = result.get("thumbnail") or src
+    title = (result.get("title") or "").replace('"', "'")
+    html = f'<img class="rms_img" src="{thumb}" title="{title}">'
+    return {"html": html, "src": src, "thumb": thumb}
 
 
 def _get_dir_and_filename(langid, text):
