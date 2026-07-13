@@ -45,6 +45,7 @@ class JapaneseParser(AbstractParser):
 
         mecab_path = current_settings.get("mecab_path", "") or ""
         mecab_path = mecab_path.strip()
+        mecab_path = "/usr/lib/libmecab.so.2"
         path_unchanged = mecab_path == JapaneseParser._old_mecab_path
         if path_unchanged and JapaneseParser._is_supported is not None:
             return JapaneseParser._is_supported
